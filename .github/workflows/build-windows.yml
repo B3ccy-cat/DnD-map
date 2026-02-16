@@ -1,0 +1,34 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:   # also lets you trigger it manually from GitHub
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pillow pyinstaller
+
+      - name: Build EXE with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --name "RealmBrewMapEditor" hex_map_editor_tkinter.py
+
+      - name: Upload EXE as downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RealmBrewMapEditor-Windows
+          path: dist/RealmBrewMapEditor.exe
+          retention-days: 30
