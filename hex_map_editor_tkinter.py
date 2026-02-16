@@ -262,7 +262,7 @@ class App:
         self._thumb_refs      = []
 
         self._build_ui()
-        self._prompt_folder()
+        self._set_mode("view")
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -285,10 +285,11 @@ class App:
             b.pack(side=tk.LEFT, padx=3, pady=10)
             return b
 
-        tb("📂 Open Folder", self._prompt_folder)
-        tb("🗋 New Map",     self._new_map)
-        tb("💾 Save",        self._save_map)
-        tb("📂 Load Map",    self._load_map)
+        tb("📂 Choose Image Folder", self._prompt_folder)
+        tb("🗋 Start New Map",       self._new_map)
+        tb("📂 Load Saved Map",      self._load_map)
+        tb("💾 Save Current Map",    self._save_map)
+        tb("🖼 Export Image",        self._export_image)
         tk.Frame(topbar, bg=PANEL_BG, width=20).pack(side=tk.LEFT)
         self.btn_tile    = tb("🧱 Place Tile",    lambda: self._set_mode("place_tile"))
         self.btn_overlay = tb("🎭 Place Overlay", lambda: self._set_mode("place_overlay"))
@@ -305,7 +306,8 @@ class App:
         self.sidebar.pack(side=tk.RIGHT, fill=tk.Y)
         self.sidebar.pack_propagate(False)
 
-        self.status_var = tk.StringVar(value="Open your Realm Brew bundle folder to begin")
+        self.status_var = tk.StringVar(
+            value="Welcome!  Start by clicking  📂 Choose Image Folder  to load your Realm Brew tiles.")
         tk.Label(self.root, textvariable=self.status_var,
                  bg=PANEL_BG, fg=TEXT_DIM,
                  font=("Helvetica", 11), anchor=tk.W, padx=10
@@ -341,6 +343,7 @@ class App:
         self.root.bind("<Control-l>",    lambda e: self._load_map())
         self.root.bind("<Control-n>",    lambda e: self._new_map())
         self.root.bind("<Control-o>",    lambda e: self._prompt_folder())
+        self.root.bind("<Control-e>",    lambda e: self._export_image())
         self.root.bind("<Configure>",    lambda e: self._redraw())
         self._redraw()
 
@@ -845,11 +848,29 @@ class App:
                 f"Selected '{ovs[idx].name}'  •  Click a hex to place it")
         self._rebuild_sidebar()
 
-    # ── View sidebar ──────────────────────────────────────────────────────────
+    # ── Controls sidebar ──────────────────────────────────────────────────────
 
     def _build_view_sidebar(self):
         p = self.sidebar
-        self._lbl(p, "MAP INFO", fg=ACCENT, size=13, bold=True)
+        self._lbl(p, "CONTROLS & HELP", fg=ACCENT, size=13, bold=True)
+
+        # Folder explanation box
+        help_frame = tk.Frame(p, bg="#2a2f45", bd=1, relief=tk.SOLID)
+        help_frame.pack(fill=tk.X, padx=10, pady=(4, 8))
+        tk.Label(help_frame,
+                 text="📂  Choose Image Folder",
+                 bg="#2a2f45", fg=ACCENT,
+                 font=("Helvetica", 11, "bold")).pack(anchor=tk.W, padx=8, pady=(6, 2))
+        tk.Label(help_frame,
+                 text='Select the folder named:\n"Realm Brew - Complete Bundle v0.2 KS"\n'
+                      'This loads all your tile and overlay images.',
+                 bg="#2a2f45", fg=TEXT,
+                 font=("Helvetica", 10),
+                 justify=tk.LEFT, wraplength=SIDEBAR_W - 40
+                 ).pack(anchor=tk.W, padx=8, pady=(0, 8))
+
+        self._divider(p)
+        self._lbl(p, "MAP INFO", fg=ACCENT, size=11, bold=True)
 
         n_ov = sum(len(v) for v in self.library.overlay_categories.values())
         for label, val in [
@@ -874,13 +895,14 @@ class App:
             ("[ / ]",        "Rotate overlay ±15°"),
             ("– / +",        "Scale overlay smaller/larger"),
             ("Del / ⌫",     "Remove tile or overlay"),
-            ("Scroll",        "Zoom"),
-            ("Right-drag",    "Pan"),
-            ("ESC",           "Deselect / View mode"),
-            ("Ctrl+S",        "Save"),
-            ("Ctrl+L",        "Load"),
-            ("Ctrl+N",        "New map"),
-            ("Ctrl+O",        "Open folder"),
+            ("Scroll",        "Zoom in / out"),
+            ("Right-drag",    "Pan around map"),
+            ("ESC",           "Deselect / Controls"),
+            ("Ctrl+S",        "Save current map"),
+            ("Ctrl+L",        "Load saved map"),
+            ("Ctrl+N",        "Start new map"),
+            ("Ctrl+O",        "Choose image folder"),
+            ("Ctrl+E",        "Export image"),
         ]
         for key, desc in shortcuts:
             row = tk.Frame(p, bg=PANEL_BG)
@@ -905,6 +927,157 @@ class App:
             else:
                 tk.Label(p, text="  (empty hex)", bg=PANEL_BG, fg=TEXT_DIM,
                          font=("Helvetica", 10)).pack(anchor=tk.W, padx=10)
+
+
+    # ── Export image ──────────────────────────────────────────────────────────
+
+    def _export_image(self):
+        if not self.hex_map.tiles and not self.hex_map.overlays:
+            messagebox.showwarning("Nothing to export", "Place some tiles first before exporting.")
+            return
+
+        # Ask format
+        fmt_win = tk.Toplevel(self.root)
+        fmt_win.title("Export Image")
+        fmt_win.configure(bg=PANEL_BG)
+        fmt_win.resizable(False, False)
+        fmt_win.grab_set()
+
+        tk.Label(fmt_win, text="Export map as image", bg=PANEL_BG, fg=ACCENT,
+                 font=("Helvetica", 13, "bold")).pack(padx=20, pady=(16, 4))
+
+        fmt_var = tk.StringVar(value="PNG")
+        bg_var  = tk.StringVar(value="transparent")
+
+        opts_frame = tk.Frame(fmt_win, bg=PANEL_BG)
+        opts_frame.pack(padx=20, pady=8)
+
+        tk.Label(opts_frame, text="Format:", bg=PANEL_BG, fg=TEXT,
+                 font=("Helvetica", 11)).grid(row=0, column=0, sticky=tk.W, pady=4)
+        for i, fmt in enumerate(("PNG", "JPEG")):
+            tk.Radiobutton(opts_frame, text=fmt, variable=fmt_var, value=fmt,
+                           bg=PANEL_BG, fg=TEXT, selectcolor=BTN_ACTIVE_BG,
+                           activebackground=PANEL_BG,
+                           font=("Helvetica", 11)).grid(row=0, column=i+1, padx=8)
+
+        tk.Label(opts_frame, text="Background:", bg=PANEL_BG, fg=TEXT,
+                 font=("Helvetica", 11)).grid(row=1, column=0, sticky=tk.W, pady=4)
+        for i, (label, val) in enumerate([("Transparent (PNG only)", "transparent"),
+                                           ("White", "white")]):
+            tk.Radiobutton(opts_frame, text=label, variable=bg_var, value=val,
+                           bg=PANEL_BG, fg=TEXT, selectcolor=BTN_ACTIVE_BG,
+                           activebackground=PANEL_BG,
+                           font=("Helvetica", 11)).grid(row=1, column=i+1, padx=8, sticky=tk.W)
+
+        def do_export():
+            fmt    = fmt_var.get()
+            use_bg = bg_var.get()
+            fmt_win.destroy()
+            self._render_and_save(fmt, use_bg)
+
+        btn_row = tk.Frame(fmt_win, bg=PANEL_BG)
+        btn_row.pack(pady=(4, 16))
+        tk.Button(btn_row, text="Cancel", command=fmt_win.destroy,
+                  bg=BTN_BG, fg=BTN_FG, relief=tk.RAISED, bd=1,
+                  padx=12, pady=6, font=("Helvetica", 11), cursor="hand2"
+                  ).pack(side=tk.LEFT, padx=8)
+        tk.Button(btn_row, text="🖼  Export", command=do_export,
+                  bg=BTN_ACTIVE_BG, fg=BTN_ACTIVE_FG, relief=tk.RAISED, bd=1,
+                  padx=12, pady=6, font=("Helvetica", 11, "bold"), cursor="hand2"
+                  ).pack(side=tk.LEFT, padx=8)
+
+    def _render_and_save(self, fmt, bg_choice):
+        """Render all tiles and overlays to a PIL image and save it."""
+        RENDER_HEX = 120    # fixed high-res hex size for export (px)
+        PAD        = 40     # whitespace padding around content (px)
+
+        if not self.hex_map.tiles and not self.hex_map.overlays:
+            return
+
+        # Work out bounding box in pixel space at RENDER_HEX size
+        all_centres = []
+        for (col, row) in self.hex_map.tiles:
+            all_centres.append(hex_to_pixel(col, row, RENDER_HEX))
+        for ov in self.hex_map.overlays:
+            hx, hy = hex_to_pixel(ov.col, ov.row, RENDER_HEX)
+            all_centres.append((hx + ov.offset_x * RENDER_HEX / max(self.hex_size, 1),
+                                 hy + ov.offset_y * RENDER_HEX / max(self.hex_size, 1)))
+
+        xs = [c[0] for c in all_centres]
+        ys = [c[1] for c in all_centres]
+        min_x = min(xs) - RENDER_HEX - PAD
+        min_y = min(ys) - RENDER_HEX - PAD
+        max_x = max(xs) + RENDER_HEX + PAD
+        max_y = max(ys) + RENDER_HEX + PAD
+
+        W = int(max_x - min_x)
+        H = int(max_y - min_y)
+
+        # Create canvas image
+        if bg_choice == "transparent" and fmt == "PNG":
+            canvas_img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        else:
+            canvas_img = Image.new("RGBA", (W, H), (255, 255, 255, 255))
+
+        def offset(hx, hy):
+            return int(hx - min_x), int(hy - min_y)
+
+        # Draw tiles
+        for (col, row), tile in self.hex_map.tiles.items():
+            hx, hy = hex_to_pixel(col, row, RENDER_HEX)
+            ox, oy = offset(hx, hy)
+            size   = int(RENDER_HEX * 2)
+            try:
+                raw = Image.open(tile.path).convert("RGBA")
+                raw = raw.resize((size, size), Image.LANCZOS)
+                if tile.rotation:
+                    raw = raw.rotate(-tile.rotation * 60, expand=False)
+                paste_x = ox - size // 2
+                paste_y = oy - size // 2
+                canvas_img.paste(raw, (paste_x, paste_y), raw)
+            except Exception:
+                pass
+
+        # Draw overlays (scale offset by render vs display ratio)
+        scale_ratio = RENDER_HEX / max(self.hex_size, 1)
+        for ov in self.hex_map.overlays:
+            hx, hy = hex_to_pixel(ov.col, ov.row, RENDER_HEX)
+            cx = hx + ov.offset_x * scale_ratio
+            cy = hy + ov.offset_y * scale_ratio
+            ox, oy = offset(cx, cy)
+            base = max(int(RENDER_HEX * 2 * ov.scale), 4)
+            try:
+                raw = Image.open(ov.path).convert("RGBA")
+                asp = raw.height / max(raw.width, 1)
+                raw = raw.resize((base, max(int(base * asp), 4)), Image.LANCZOS)
+                if ov.rotation:
+                    raw = raw.rotate(-ov.rotation, expand=True, resample=Image.BICUBIC)
+                paste_x = ox - raw.width  // 2
+                paste_y = oy - raw.height // 2
+                canvas_img.paste(raw, (paste_x, paste_y), raw)
+            except Exception:
+                pass
+
+        # Convert and save
+        if fmt == "JPEG":
+            final = Image.new("RGB", canvas_img.size, (255, 255, 255))
+            final.paste(canvas_img, mask=canvas_img.split()[3])
+        else:
+            final = canvas_img
+
+        ext  = ".png" if fmt == "PNG" else ".jpg"
+        path = filedialog.asksaveasfilename(
+            title="Save Exported Image",
+            defaultextension=ext,
+            filetypes=[(fmt, f"*{ext}"), ("All", "*.*")])
+        if path:
+            try:
+                final.save(path)
+                self.status_var.set(f"Exported: {path}")
+                messagebox.showinfo("Export complete",
+                    f"Map exported successfully!\n\n{path}")
+            except Exception as e:
+                messagebox.showerror("Export error", str(e))
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
